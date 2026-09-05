@@ -11,3 +11,4 @@
 *.elf
 *.elf.map
 *.bin
+__pycache__/

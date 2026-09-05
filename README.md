@@ -49,11 +49,13 @@ against it. The key flag: `connect_hw_server -allow_non_jtag`.
 
 ```
 fpga/
-  openXC7.mk           -- shared build rules (from openXC7/demo-projects)
-  blinky/              -- first bring-up: 3 LEDs flashing in sync
-  button-chase/        -- LED chase pattern, pause/reverse via onboard buttons
+  openXC7.mk               -- shared build rules (from openXC7/demo-projects)
+  blinky/                  -- first bring-up: 3 LEDs flashing in sync
+  button-chase/            -- LED chase pattern, pause/reverse via onboard buttons
+  overclock-experiment/    -- button-controlled runtime CPU overclock (known broken, see its README)
+litex-soc/                 -- the LiteX SoC definition (CPU/memory-map/peripherals)
 firmware/
-  led-chase/           -- bare-metal RISC-V firmware for the LiteX SoC below
+  led-chase/               -- bare-metal RISC-V firmware for the LiteX SoC above
 ```
 
 ### FPGA-only demos (`fpga/`)
@@ -67,14 +69,15 @@ Each directory is self-contained: `make` builds the bitstream, `vivado_lab
   direction (see the board manual for the actual pin mapping / active-low
   logic)
 
-### RISC-V SoC + firmware (`firmware/led-chase`)
+### RISC-V SoC + firmware (`litex-soc/` + `firmware/led-chase`)
 
 This firmware runs on a [LiteX](https://github.com/enjoy-digital/litex)
-SoC (VexRiscv CPU, RV32IM) built via:
+SoC (VexRiscv CPU, RV32IM) defined in `litex-soc/` and built via:
 ```bash
-python3 litex-boards/litex_boards/targets/qmtech_kintex7_devboard.py \
+python3 litex-soc/qmtech_kintex7_devboard.py \
     --toolchain=openxc7 --integrated-main-ram-size=0x8000 --build
 ```
+(see `litex-soc/README.md` for the full setup)
 (`--integrated-main-ram-size` uses internal block RAM instead of DDR3 --
 the DDR3 PHY needs I/O primitives that the open-source Kintex-7 database
 doesn't fully cover yet, so this is a deliberate simplification: a RISC-V
@@ -120,5 +123,7 @@ JTAG header (J1 pin 6) or any other board ground point.
 - **Button-controlled runtime overclock** (a `BUFGMUX`-based clock switch
   selecting between two PLL outputs) was prototyped and confirmed working
   for LED speed, but caused a spurious-interrupt regression that wasn't
-  fully run to ground before being reverted. Worth revisiting with more time
-  -- the core idea (glitchless clock switching via a physical button) works.
+  fully run to ground before being reverted. See
+  `fpga/overclock-experiment/` for the actual code and a full writeup of
+  what broke -- worth revisiting with more time, the core idea (glitchless
+  clock switching via a physical button) works.

@@ -66,7 +66,7 @@ class BaseSoC(SoCCore):
                  with_ethernet   = False, with_etherbone=False, eth_ip="192.168.1.50", eth_dynamic_ip=False,
                  local_ip        = "", remote_ip="",
                  with_led_chaser = True, with_video_terminal=False, with_video_framebuffer=False, with_video_colorbars=False,
-                 with_spi_flash=False, **kwargs):
+                 with_spi_flash=False, with_cm4_uart=False, **kwargs):
         platform = qmtech_kintex7_devboard.Platform(toolchain=toolchain)
 
         # SoCCore ----------------------------------------------------------------------------------
@@ -129,6 +129,15 @@ class BaseSoC(SoCCore):
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
+        # CM4 link ---------------------------------------------------------------------------------
+        # A second, independent UART on GPIO14/15 (TX/RX), matching a real Raspberry Pi's own
+        # primary UART pins -- once the CM4 is running Linux, its own hardware UART (ttyAMA0 /
+        # serial0, once /boot/config.txt has enable_uart=1 and bluetooth disabled so it isn't
+        # sharing the pins with the Bluetooth module) can talk directly to this RISC-V core's
+        # console, no USB-serial adapter needed on that side.
+        if with_cm4_uart:
+            self.add_uart(name="cm4_uart", uart_name="gpio_serial", baudrate=115200)
+
         if kwargs["uart_name"] == "serial":
             if kwargs.get("uart_name", "serial") == "serial": kwargs["uart_name"] = "jtag_serial"
 
@@ -151,6 +160,7 @@ def main():
     sdopts.add_argument("--with-spi-sdcard", action="store_true", help="Enable SPI-mode SDCard support.")
     sdopts.add_argument("--with-sdcard",     action="store_true", help="Enable SDCard support.")
     parser.add_target_argument("--with-spi-flash",      action="store_true",        help="Enable memory-mapped SPI flash.")
+    parser.add_target_argument("--with-cm4-uart",       action="store_true",        help="Enable a second UART on GPIO14/15 for a Raspberry Pi CM4 to talk to.")
     viopts = parser.target_group.add_mutually_exclusive_group()
     viopts.add_argument("--with-video-terminal",    action="store_true", help="Enable Video Terminal (VGA).")
     viopts.add_argument("--with-video-framebuffer", action="store_true", help="Enable Video Framebuffer (VGA).")
@@ -167,6 +177,7 @@ def main():
         local_ip               = args.local_ip,
         remote_ip              = args.remote_ip,
         with_spi_flash         = args.with_spi_flash,
+        with_cm4_uart          = args.with_cm4_uart,
         with_video_terminal    = args.with_video_terminal,
         with_video_framebuffer = args.with_video_framebuffer,
         with_video_colorbars   = args.with_video_colorbars,

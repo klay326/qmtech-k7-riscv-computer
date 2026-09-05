@@ -35,11 +35,11 @@ _io = [
         Subsignal("rx", Pins("JP5:8")),
         IOStandard("LVCMOS33")
     ),
-    #("gpio_serial", 0,
-    #    Subsignal("tx", Pins("GPIO:14")),
-    #    Subsignal("rx", Pins("GPIO:15")),
-    #    IOStandard("LVCMOS33")
-    # )
+    ("gpio_serial", 0,
+        Subsignal("tx", Pins("GPIO:14")),
+        Subsignal("rx", Pins("GPIO:15")),
+        IOStandard("LVCMOS33")
+    ),
 
     # SPIFlash
     # S25FL128L

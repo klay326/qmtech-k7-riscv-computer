@@ -56,6 +56,8 @@ fpga/
 litex-soc/                 -- the LiteX SoC definition (CPU/memory-map/peripherals)
 firmware/
   led-chase/               -- bare-metal RISC-V firmware for the LiteX SoC above
+cm4/                       -- CM4 integration: scripts + notes for pairing a
+                              Raspberry Pi CM4 with the FPGA (see its README)
 ```
 
 ### FPGA-only demos (`fpga/`)
@@ -75,9 +77,10 @@ This firmware runs on a [LiteX](https://github.com/enjoy-digital/litex)
 SoC (VexRiscv CPU, RV32IM) defined in `litex-soc/` and built via:
 ```bash
 python3 litex-soc/qmtech_kintex7_devboard.py \
-    --toolchain=openxc7 --integrated-main-ram-size=0x8000 --build
+    --toolchain=openxc7 --integrated-main-ram-size=0x8000 --with-cm4-uart --build
 ```
-(see `litex-soc/README.md` for the full setup)
+(see `litex-soc/README.md` for the full setup; `--with-cm4-uart` adds a
+second UART on GPIO14/15 for a Raspberry Pi CM4 to talk to -- see `cm4/`)
 (`--integrated-main-ram-size` uses internal block RAM instead of DDR3 --
 the DDR3 PHY needs I/O primitives that the open-source Kintex-7 database
 doesn't fully cover yet, so this is a deliberate simplification: a RISC-V

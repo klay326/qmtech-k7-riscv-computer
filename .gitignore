@@ -1,0 +1,13 @@
+# FPGA build artifacts
+*.bit
+*.frames
+*.fasm
+*.json
+*.rpt
+
+# Firmware build artifacts
+*.o
+*.d
+*.elf
+*.elf.map
+*.bin

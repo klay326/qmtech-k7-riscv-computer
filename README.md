@@ -113,10 +113,13 @@ JTAG header (J1 pin 6) or any other board ground point.
   stress test; compute-bound rather than memory-bound, much heavier per
   second than `pi`
 - `x86` -- a minimal 8086 instruction interpreter (not the full ISA, just
-  the handful of opcodes needed for a small test program) executing a real,
-  hand-assembled x86 binary (verified with `nasm` and a native run before
-  porting) -- the RISC-V core interpreting genuine x86 machine code,
-  instruction by instruction
+  the handful of opcodes needed for a small test program) executing a real
+  x86 binary assembled from `hello8086.asm` with `nasm -f bin` (verified
+  with a native run before porting/embedding as a byte array) -- the
+  RISC-V core interpreting genuine x86 machine code, instruction by
+  instruction. Requires `nasm` only if you want to modify the test program
+  and regenerate its byte array; the firmware itself has no assembler
+  dependency, the bytes are already baked in
 
 ## Known limitations / future work
 

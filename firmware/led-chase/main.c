@@ -464,8 +464,8 @@ static void x86_step(x86_cpu_t *c)
 	}
 }
 
-// Assembled from a tiny NASM source (`mov si,msg` / loop with `lodsb`+`cmp`+
-// `je` / `int 0x21` print+exit) -- verified byte-for-byte before embedding.
+// Assembled from hello8086.asm (see that file for source + rebuild
+// instructions) -- verified byte-for-byte before embedding.
 static const uint8_t x86_hello_program[] = {
 	0xbe, 0x14, 0x00, 0xac, 0x3c, 0x00, 0x74, 0x08, 0x88, 0xc2, 0xb4, 0x02,
 	0xcd, 0x21, 0xeb, 0xf3, 0xb4, 0x4c, 0xcd, 0x21, 0x48, 0x65, 0x6c, 0x6c,

@@ -77,10 +77,12 @@ This firmware runs on a [LiteX](https://github.com/enjoy-digital/litex)
 SoC (VexRiscv CPU, RV32IM) defined in `litex-soc/` and built via:
 ```bash
 python3 litex-soc/qmtech_kintex7_devboard.py \
-    --toolchain=openxc7 --integrated-main-ram-size=0x8000 --with-cm4-uart --build
+    --toolchain=openxc7 --integrated-main-ram-size=0x8000 --build
 ```
-(see `litex-soc/README.md` for the full setup; `--with-cm4-uart` adds a
-second UART on GPIO14/15 for a Raspberry Pi CM4 to talk to -- see `cm4/`)
+(see `litex-soc/README.md` for the full setup. There's also a
+`--with-cm4-uart` flag for a second UART on GPIO14/15 for a Raspberry Pi
+CM4 to talk to -- **do not use it yet**, see `cm4/README.md`, it currently
+causes serial upload corruption)
 (`--integrated-main-ram-size` uses internal block RAM instead of DDR3 --
 the DDR3 PHY needs I/O primitives that the open-source Kintex-7 database
 doesn't fully cover yet, so this is a deliberate simplification: a RISC-V

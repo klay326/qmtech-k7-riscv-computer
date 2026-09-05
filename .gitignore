@@ -12,3 +12,5 @@
 *.elf.map
 *.bin
 __pycache__/
+vivado_lab*.jou
+vivado_lab*.log

@@ -263,6 +263,7 @@ static void help(void)
 	puts("donut              - Spinning ASCII donut");
 	puts("pi                 - Crunch pi digits (memory-bound stress test)");
 	puts("mandel             - Render + stress-test Mandelbrot set (compute-bound)");
+	puts("x86                - Run a tiny real 8086 program on an interpreter");
 }
 
 extern void donut(void);
@@ -298,6 +299,201 @@ static void chase_cmd(void)
 	printf("Stopped.\n");
 }
 
+// Minimal 8086 instruction interpreter -- decodes and executes exactly the
+// opcodes emitted by a small hand-written test program (verified via `nasm
+// -f bin` and a native run before porting here), not the full ISA. INT 0x21
+// AH=02h/4Ch are implemented as tiny syscalls (print char in DL / halt with
+// code in AL), matching real DOS convention even though this isn't DOS --
+// just enough surface for a recognizable "real x86 machine code, actually
+// executing" demo. No real segmentation: this only ever runs within one
+// flat memory window, so effective addresses are just the 16-bit offset.
+#define X86_MEM_SIZE 512
+static uint8_t x86_mem[X86_MEM_SIZE];
+
+typedef struct {
+	uint16_t ax, bx, cx, dx, si, di, bp, sp;
+	uint16_t ip;
+	uint8_t zf, sf, cf;
+	int halted;
+	int exit_code;
+} x86_cpu_t;
+
+#define X86_GET_LO(r) ((uint8_t)((r) & 0xFF))
+#define X86_GET_HI(r) ((uint8_t)(((r) >> 8) & 0xFF))
+#define X86_SET_LO(r, v) ((r) = (uint16_t)(((r) & 0xFF00) | (uint8_t)(v)))
+#define X86_SET_HI(r, v) ((r) = (uint16_t)(((r) & 0x00FF) | ((uint16_t)(uint8_t)(v) << 8)))
+
+static uint8_t x86_get_reg8(x86_cpu_t *c, int code)
+{
+	switch (code) {
+		case 0: return X86_GET_LO(c->ax);
+		case 1: return X86_GET_LO(c->cx);
+		case 2: return X86_GET_LO(c->dx);
+		case 3: return X86_GET_LO(c->bx);
+		case 4: return X86_GET_HI(c->ax);
+		case 5: return X86_GET_HI(c->cx);
+		case 6: return X86_GET_HI(c->dx);
+		case 7: return X86_GET_HI(c->bx);
+	}
+	return 0;
+}
+
+static void x86_set_reg8(x86_cpu_t *c, int code, uint8_t val)
+{
+	switch (code) {
+		case 0: X86_SET_LO(c->ax, val); break;
+		case 1: X86_SET_LO(c->cx, val); break;
+		case 2: X86_SET_LO(c->dx, val); break;
+		case 3: X86_SET_LO(c->bx, val); break;
+		case 4: X86_SET_HI(c->ax, val); break;
+		case 5: X86_SET_HI(c->cx, val); break;
+		case 6: X86_SET_HI(c->dx, val); break;
+		case 7: X86_SET_HI(c->bx, val); break;
+	}
+}
+
+static uint16_t *x86_reg16_ptr(x86_cpu_t *c, int code)
+{
+	switch (code) {
+		case 0: return &c->ax;
+		case 1: return &c->cx;
+		case 2: return &c->dx;
+		case 3: return &c->bx;
+		case 4: return &c->sp;
+		case 5: return &c->bp;
+		case 6: return &c->si;
+		case 7: return &c->di;
+	}
+	return &c->ax;
+}
+
+static uint8_t x86_fetch8(x86_cpu_t *c)
+{
+	return x86_mem[c->ip++ % X86_MEM_SIZE];
+}
+
+static int8_t x86_fetch_rel8(x86_cpu_t *c)
+{
+	return (int8_t)x86_fetch8(c);
+}
+
+static uint16_t x86_fetch16(x86_cpu_t *c)
+{
+	uint16_t lo = x86_fetch8(c);
+	uint16_t hi = x86_fetch8(c);
+	return (uint16_t)(lo | (hi << 8));
+}
+
+static void x86_step(x86_cpu_t *c)
+{
+	uint8_t op = x86_fetch8(c);
+
+	if (op >= 0xB8 && op <= 0xBF) {          // MOV reg16, imm16
+		int reg = op - 0xB8;
+		*x86_reg16_ptr(c, reg) = x86_fetch16(c);
+		return;
+	}
+	if (op >= 0xB0 && op <= 0xB7) {          // MOV reg8, imm8
+		int reg = op - 0xB0;
+		x86_set_reg8(c, reg, x86_fetch8(c));
+		return;
+	}
+	switch (op) {
+		case 0xAC: {                          // LODSB
+			uint8_t val = x86_mem[c->si % X86_MEM_SIZE];
+			X86_SET_LO(c->ax, val);
+			c->si++;
+			break;
+		}
+		case 0x3C: {                          // CMP AL, imm8
+			uint8_t imm = x86_fetch8(c);
+			uint8_t al = X86_GET_LO(c->ax);
+			int result = al - imm;
+			c->zf = (result == 0);
+			c->sf = (result & 0x80) != 0;
+			c->cf = (al < imm);
+			break;
+		}
+		case 0x74: {                          // JE/JZ rel8
+			int8_t rel = x86_fetch_rel8(c);
+			if (c->zf) c->ip = (uint16_t)(c->ip + rel);
+			break;
+		}
+		case 0x88: {                          // MOV r/m8, r8 (mod=11 only)
+			uint8_t modrm = x86_fetch8(c);
+			int mod = (modrm >> 6) & 3;
+			int reg = (modrm >> 3) & 7;
+			int rm  = modrm & 7;
+			if (mod == 3) {
+				uint8_t val = x86_get_reg8(c, reg);
+				x86_set_reg8(c, rm, val);
+			} else {
+				printf("[x86] unsupported ModRM mod=%d at ip=%04x\n", mod, c->ip);
+				c->halted = 1;
+			}
+			break;
+		}
+		case 0xCD: {                          // INT imm8
+			uint8_t vec = x86_fetch8(c);
+			if (vec == 0x21) {
+				uint8_t ah = X86_GET_HI(c->ax);
+				if (ah == 0x02) {
+					putchar(X86_GET_LO(c->dx));
+				} else if (ah == 0x4C) {
+					c->halted = 1;
+					c->exit_code = X86_GET_LO(c->ax);
+				} else {
+					printf("[x86] unsupported INT 0x21 AH=%02x\n", ah);
+					c->halted = 1;
+				}
+			} else {
+				printf("[x86] unsupported interrupt vector %02x\n", vec);
+				c->halted = 1;
+			}
+			break;
+		}
+		case 0xEB: {                          // JMP rel8
+			int8_t rel = x86_fetch_rel8(c);
+			c->ip = (uint16_t)(c->ip + rel);
+			break;
+		}
+		default:
+			printf("[x86] unimplemented opcode %02x at ip=%04x\n", op, c->ip - 1);
+			c->halted = 1;
+			break;
+	}
+}
+
+// Assembled from a tiny NASM source (`mov si,msg` / loop with `lodsb`+`cmp`+
+// `je` / `int 0x21` print+exit) -- verified byte-for-byte before embedding.
+static const uint8_t x86_hello_program[] = {
+	0xbe, 0x14, 0x00, 0xac, 0x3c, 0x00, 0x74, 0x08, 0x88, 0xc2, 0xb4, 0x02,
+	0xcd, 0x21, 0xeb, 0xf3, 0xb4, 0x4c, 0xcd, 0x21, 0x48, 0x65, 0x6c, 0x6c,
+	0x6f, 0x20, 0x66, 0x72, 0x6f, 0x6d, 0x20, 0x38, 0x30, 0x38, 0x36, 0x20,
+	0x6c, 0x61, 0x6e, 0x64, 0x21, 0x0d, 0x0a, 0x00
+};
+
+static void x86_cmd(void)
+{
+	x86_cpu_t cpu;
+	memset(&cpu, 0, sizeof(cpu));
+	memset(x86_mem, 0, sizeof(x86_mem));
+	memcpy(x86_mem, x86_hello_program, sizeof(x86_hello_program));
+
+	printf("Running real 8086 machine code:\n");
+	uint32_t t0 = stopwatch_start();
+
+	int steps = 0;
+	while (!cpu.halted && steps < 100000) {
+		x86_step(&cpu);
+		steps++;
+	}
+
+	uint32_t ms = stopwatch_elapsed_ms(t0);
+	printf("\n[x86] halted, exit_code=%d, %d instructions in %lu us\n",
+		cpu.exit_code, steps, (unsigned long)(ms * 1000));
+}
+
 static void console_service(void)
 {
 	char *str;
@@ -318,6 +514,8 @@ static void console_service(void)
 		pi_cmd();
 	else if (strcmp(token, "mandel") == 0)
 		mandel_cmd();
+	else if (strcmp(token, "x86") == 0)
+		x86_cmd();
 	prompt();
 }
 

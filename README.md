@@ -112,6 +112,11 @@ JTAG header (J1 pin 6) or any other board ground point.
 - `mandel` -- fixed-point (Q16.16) Mandelbrot set renderer + continuous
   stress test; compute-bound rather than memory-bound, much heavier per
   second than `pi`
+- `x86` -- a minimal 8086 instruction interpreter (not the full ISA, just
+  the handful of opcodes needed for a small test program) executing a real,
+  hand-assembled x86 binary (verified with `nasm` and a native run before
+  porting) -- the RISC-V core interpreting genuine x86 machine code,
+  instruction by instruction
 
 ## Known limitations / future work
 

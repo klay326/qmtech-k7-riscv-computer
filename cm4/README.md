@@ -1,41 +1,64 @@
 # CM4 integration
 
-Prep work for pairing the Raspberry Pi Compute Module 4 with the FPGA,
-written before the CM4's eMMC was actually flashed -- so treat the exact
-steps below as a plan to verify once it's up, not a tested procedure.
+The Raspberry Pi Compute Module 4's eMMC is flashed with Raspberry Pi OS
+(64-bit, Lite) and reachable over SSH at `qmtech-cm4.local`, seated on the
+QMTech carrier next to the FPGA.
 
 ## The link: a second UART on GPIO14/15
 
-**Status: prototyped, built, flashed, and found broken -- do not use
-`--with-cm4-uart` yet.** The idea: a second, independent UART peripheral on
-GPIO14/TX and GPIO15/RX (`../litex-soc/`, the `--with-cm4-uart` flag) --
-the same physical pins a full-size Raspberry Pi uses for its own primary
-serial port, so the CM4's own hardware UART could talk directly to the
-RISC-V core's console once it's running Linux, no USB-to-TTL adapter needed
-on that side.
+**Status: partially working.** A second, independent UART peripheral on
+GPIO14/TX and GPIO15/RX (`../litex-soc/`, the `--with-cm4-uart` flag) -- the
+same physical pins a full-size Raspberry Pi uses for its own primary serial
+port, so the CM4's own hardware UART can talk directly to the RISC-V core's
+console, no USB-to-TTL adapter needed on that side.
 
-It builds clean and the interrupt/CSR map has no conflicts (`uart`=IRQ0,
-`timer0`=IRQ1, `cm4_uart`=IRQ2, no overlap). The BIOS boots fine and prints
-its banner/memtest correctly on real hardware. But a firmware `serialboot`
-upload over the *existing* debug UART (JP5, unrelated pins) then fails
-reproducibly with UART framing errors mid-transfer, and the BIOS gets stuck
-echoing error bytes afterward until a hardware reset. Confirmed reproducible
-across a physical reset + retry, so this isn't USB-cable flakiness.
+Two separate bugs got tangled together here across two debugging sessions;
+both are now understood.
 
-Leading theory, unconfirmed: adding the second UART peripheral shifted
-place&route enough to erode timing margin somewhere in the design, and
-`nextpnr-xilinx`'s timing closure is known to be less rigorous than
-Vivado's (this project has hit that gap before, see the main README's DDR3
-section). That would explain why simple interactive text (banner, memtest
-output) is unaffected but a fast, sustained binary upload isn't. Reverted
-to the known-stable bitstream (without this flag) to keep the board
-working; this needs a clear-headed pass with real tools (ideally scoping
-the actual UART signal during a failed transfer) before re-enabling it.
+**Bug 1 (fixed): looked like corruption, was actually a stale firmware
+build.** This was previously documented as: enabling the flag built and
+flashed fine, but a firmware `serialboot` upload over the *existing* debug
+UART (JP5, unrelated pins) failed reproducibly with framing errors, and the
+BIOS got stuck echoing error bytes afterward. The leading theory at the time
+was `nextpnr-xilinx` timing-margin erosion from the added peripheral -- that
+theory was wrong. The actual cause: adding `cm4_uart` shifts every other
+peripheral's CSR address (`UART` moved from `0x2000` to `0x2800`, `TIMER0`
+from `0x1800` to `0x2000`, `CM4_UART` took `0x0`), and the firmware binary
+being uploaded (`main.bin`) was still built against the *previous* SoC
+variant's generated headers. The BIOS itself was always fine -- it uploaded
+and jumped to the firmware correctly every time (`Liftoff!` printed right on
+schedule). The firmware then silently wrote its console output to the old,
+now-wrong UART address and hung with no visible output, which looked
+identical to a corrupted upload from the outside. Rebuilding firmware
+against `build-qmtech-k7-cm4`'s own `software/include/generated/csr.h`
+(i.e. pointing `BUILD_DIR` at the build actually running on the board, not a
+different one) fixed it immediately.
 
-### CM4-side setup (untested until the CM4 is up)
+**Takeaway for next time:** whenever the *bitstream* changes to a different
+SoC configuration, `firmware/led-chase` must be rebuilt against that
+specific build's headers before reloading -- a stale `main.bin` from a
+different `--with-*` combination will boot but hang silently after
+`Liftoff!`, which is easy to mistake for a hardware/timing bug.
 
-1. Edit `/boot/firmware/config.txt` (or `/boot/config.txt` on older Raspberry
-   Pi OS releases):
+**Bug 2 (confirmed real, unresolved): high-throughput console output gets
+corrupted, but only on this bitstream.** With firmware correctly rebuilt for
+`--with-cm4-uart`, interactive/low-throughput commands (`chase`, `pi`,
+`x86`) run clean. But `donut` and `mandel` -- both continuous, fast,
+full-screen ANSI redraws -- show garbled/stray characters mixed into the
+output. This was isolated with a controlled A/B test: same physical JTAG
+cable, same debug-UART wiring, same firmware source, swapped only the
+bitstream. `donut`/`mandel` are clean on the plain `build-qmtech-k7-minimal`
+bitstream and corrupt on `build-qmtech-k7-cm4`. That rules out cable/wiring
+flakiness (a real, separate issue this project hit earlier while debugging
+this) and points back at the `--with-cm4-uart` design itself -- likely
+exactly the original timing-margin theory, just showing up as sustained
+console-output corruption rather than upload corruption. Not yet root-caused
+with a scope or STA report; needs a clear-headed pass before trusting this
+build with anything high-throughput.
+
+### CM4-side setup
+
+1. Edit `/boot/firmware/config.txt`:
    ```
    enable_uart=1
    dtoverlay=disable-bt
@@ -53,6 +76,11 @@ the actual UART signal during a failed transfer) before re-enabling it.
    CM4 directly (same package, works identically to running it on the dev
    machine), or use `cm4_link.py` here for a quick manual poke at the
    console.
+
+Still to verify: the actual GPIO14/15 <-> CM4 wiring end to end (steps
+above are written but not yet run against real hardware -- the FPGA-side
+UART and firmware pairing is confirmed working, but nothing has talked to
+it from the CM4 side yet).
 
 ### Files here
 
@@ -75,14 +103,12 @@ the full mapping if you want to wire up something beyond the UART pins.
 
 ## Still to do
 
-- **Root-cause the serial upload corruption** described above before relying
-  on `--with-cm4-uart` for anything
-- Flash Raspberry Pi OS to the eMMC (see the main project history / session
-  notes -- needs `rpiboot` in USB mass-storage-gadget mode, and finding the
-  carrier's `nRPIBOOT` jumper, which wasn't located as of writing since the
-  eMMC flash hadn't happened yet)
-- Verify the UART link actually works end to end once both the CM4 is up
-  and the corruption bug above is fixed
+- **Root-cause bug 2 above** (high-throughput console corruption on the
+  `cm4-uart` bitstream) -- safe to use for interactive commands, not yet
+  safe for anything pushing continuous fast output
+- Verify the UART link actually works end to end from the CM4 side (the
+  FPGA side is confirmed working for interactive use; the CM4-side steps
+  above are untested)
 - Decide what the CM4 is actually *for* once connected -- network-facing
   dashboard, bitstream library/switcher, or something else. Not designed
   yet.

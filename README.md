@@ -81,8 +81,9 @@ python3 litex-soc/qmtech_kintex7_devboard.py \
 ```
 (see `litex-soc/README.md` for the full setup. There's also a
 `--with-cm4-uart` flag for a second UART on GPIO14/15 for a Raspberry Pi
-CM4 to talk to -- **do not use it yet**, see `cm4/README.md`, it currently
-causes serial upload corruption)
+CM4 to talk to -- works for interactive commands, but see `cm4/README.md`
+for a real, unresolved bug where continuous high-throughput output
+(`donut`/`mandel`) gets corrupted on this build specifically)
 (`--integrated-main-ram-size` uses internal block RAM instead of DDR3 --
 the DDR3 PHY needs I/O primitives that the open-source Kintex-7 database
 doesn't fully cover yet, so this is a deliberate simplification: a RISC-V
